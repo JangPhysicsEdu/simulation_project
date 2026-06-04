@@ -1,581 +1,595 @@
-import csv
+# app.py
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-from matplotlib import font_manager, rcParams
 import pandas as pd
+import matplotlib.pyplot as plt
 import streamlit as st
+
+# 선택: OpenAI 연결 시 사용
+# from openai import OpenAI
+
 
 # =========================================================
 # 기본 설정
 # =========================================================
-PAGE_TITLE = "역학과 에너지 탐구 LMS"
+PAGE_TITLE = "포물선 운동과 역학적 에너지 보존 AIDT"
 VIDEO_URL = "https://www.youtube.com/watch?v=5A6h9F5VPMU"
-REFERENCE_URL = "https://viewer.vivasam.com/qrviewer/viewer.html?qrcode=106491_20p_6_ST"
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "aidt_projectile.db"
 
 TIMES = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
-STATE_KEY = "projectile_energy_state"
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-SAVE_FILE = BASE_DIR / "page1_response.csv"
 
 st.set_page_config(page_title=PAGE_TITLE, layout="wide")
 
-# =========================================================
-# 안내 문구
-# =========================================================
-TXT_INTRO = """
-## 포물선 운동에서 역학적 에너지 보존
-> 포물선 운동을 하는 물체는 위치와 속도가 계속 달라진다. 이때 운동에너지와 위치에너지의 합인 역학적 에너지는 어떻게 되는지 다음 탐구로 알아보자.
-"""
-
-TXT_ACTIVITY = """
-### 포물선 운동 동영상을 분석하여 역학적 에너지 보존 확인하기
-#### 목표
-> 포물선 운동을 하는 물체의 운동 에너지와 위치 에너지는 계속 변한다. 이때 역학적 에너지는 어떻게 될까?
-
-#### 문제 인식
-> 포물선 운동을 하는 물체의 운동 에너지와 위치 에너지는 계속 변한다. 이때 역학적 에너지는 어떻게 될까?
-
-#### 준비물
-> 공, 모눈종이, 스마트 기기, 동영상 분석 앱
-
-#### 탐구 수행
-> 1. 스마트 기기를 삼각대에 고정하여 동영상 촬영을 준비한다.  
-> 2. 모눈종이 앞에서 질량을 알고 있는 공을 비스듬히 던져 포물선 운동 동영상을 촬영한다.
-
-#### 결과 및 정리
-> 1. 촬영한 동영상을 운동 분석 앱을 이용하여 0.1초 간격으로 위치(x, y)와 속력(vx, vy)를 기록한다.  
-> 2. 운동 에너지, 위치에너지, 역학적 에너지를 계산한다.
-"""
-
-TXT_GRAPH_GUIDE = """
-> 3. 시간에 따른 운동 에너지, 위치 에너지, 역학적 에너지를 각각 그래프로 나타낸다.
-"""
-
-TXT_CONCLUSION = """
-#### 결론 도출
-> 포물선 운동을 하는 물체의 역학적 에너지는 시간에 따라 어떠한지 설명해보자.
-"""
-
-TXT_COMMUNICATION = """
-#### 소통하기
-> 실험 오차를 줄이기 위한 방법을 토의해보자.
-"""
 
 # =========================================================
-# 스타일
+# DB 함수
 # =========================================================
-st.markdown("""
-<style>
-:root {
-    --label-bg: #dfe3f4;
-    --head-bg: #e8ebf5;
-    --cell-border: #bfc6d8;
-    --value-border: #bfbfbf;
-    --input-border: #8d97aa;
-    --row-h: 58px;
-    --top-h: 52px;
-    --radius: 0px;
-    --font-size: 15px;
-}
+def get_conn():
+    return sqlite3.connect(DB_PATH)
 
-div[data-testid="stExpander"] details {
-    border-radius: 8px;
-}
-div[data-testid="stExpander"] details > summary {
-    font-weight: 700;
-}
 
-.sheet-cell-wrap {
-    height: var(--row-h);
-    display: flex;
-    align-items: stretch;
-    margin: 0 !important;
-}
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
 
-.sheet-top-wrap {
-    height: var(--top-h);
-    display: flex;
-    align-items: stretch;
-    margin: 0 !important;
-}
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS student_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT,
+        student_name TEXT,
+        class_name TEXT,
+        diagnosis_q1 TEXT,
+        diagnosis_q2 TEXT,
+        diagnosis_q3 TEXT,
+        mass REAL,
+        gravity REAL,
+        data_json TEXT,
+        conclusion TEXT,
+        error_discussion TEXT,
+        ai_feedback TEXT,
+        misconception_type TEXT
+    )
+    """)
 
-.sheet-label {
-    width: 100%;
-    height: 100%;
-    background: var(--label-bg);
-    border: 1px solid var(--cell-border);
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 4px 8px;
-    box-sizing: border-box;
-    font-weight: 700;
-    line-height: 1.2;
-    font-size: var(--font-size);
-}
+    conn.commit()
+    conn.close()
 
-.sheet-head {
-    width: 100%;
-    height: 100%;
-    background: var(--head-bg);
-    border: 1px solid var(--cell-border);
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 4px 8px;
-    box-sizing: border-box;
-    font-weight: 700;
-    font-size: var(--font-size);
-}
 
-.sheet-value {
-    width: 100%;
-    height: 100%;
-    background: white;
-    border: 1px solid var(--value-border);
-    border-radius: var(--radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 4px 6px;
-    box-sizing: border-box;
-    font-size: var(--font-size);
-}
+def save_record(record):
+    conn = get_conn()
+    cur = conn.cursor()
 
-div[data-testid="stTextInput"] {
-    height: var(--row-h);
-    margin: 0 !important;
-}
-div[data-testid="stTextInput"] > div {
-    height: 100%;
-}
-div[data-testid="stTextInput"] [data-baseweb="base-input"] {
-    height: 100% !important;
-    min-height: 100% !important;
-}
-div[data-testid="stTextInput"] input {
-    height: 100% !important;
-    min-height: 100% !important;
-    text-align: center !important;
-    border: 1.5px solid var(--input-border) !important;
-    border-radius: var(--radius) !important;
-    background: #ffffff !important;
-    box-sizing: border-box !important;
-    font-size: var(--font-size) !important;
-    padding: 0 6px !important;
-}
-div[data-testid="stTextInput"] label {
-    display: none !important;
-}
+    cur.execute("""
+    INSERT INTO student_records (
+        created_at,
+        student_name,
+        class_name,
+        diagnosis_q1,
+        diagnosis_q2,
+        diagnosis_q3,
+        mass,
+        gravity,
+        data_json,
+        conclusion,
+        error_discussion,
+        ai_feedback,
+        misconception_type
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        record["created_at"],
+        record["student_name"],
+        record["class_name"],
+        record["diagnosis_q1"],
+        record["diagnosis_q2"],
+        record["diagnosis_q3"],
+        record["mass"],
+        record["gravity"],
+        record["data_json"],
+        record["conclusion"],
+        record["error_discussion"],
+        record["ai_feedback"],
+        record["misconception_type"],
+    ))
 
-div[data-testid="column"] {
-    padding: 0 !important;
-}
+    conn.commit()
+    conn.close()
 
-.frac {
-    display: inline-block;
-    vertical-align: middle;
-    text-align: center;
-    line-height: 1;
-    margin-right: 2px;
-}
-.frac .top {
-    display: block;
-    border-bottom: 1px solid #222;
-    padding: 0 2px 1px 2px;
-    font-size: 0.86em;
-}
-.frac .bottom {
-    display: block;
-    padding: 1px 2px 0 2px;
-    font-size: 0.86em;
-}
 
-.sheet-spacer {
-    height: 8px;
-}
-</style>
-""", unsafe_allow_html=True)
+def load_records():
+    conn = get_conn()
+    df = pd.read_sql_query("SELECT * FROM student_records ORDER BY id DESC", conn)
+    conn.close()
+    return df
+
 
 # =========================================================
 # 유틸 함수
 # =========================================================
-def parse_float(text, default=0.0):
+def parse_float(value, default=0.0):
     try:
-        text = str(text).strip()
-        return default if text == "" else float(text)
+        text = str(value).strip()
+        if text == "":
+            return default
+        return float(text)
     except Exception:
         return default
 
 
-def fmt_time(t):
-    return "0" if t == 0 else f"{t:.1f}초"
-
-
-def sub_var(main, sub):
-    return f"<i>{main}</i><sub>{sub}</sub>"
-
-
-def sup_var(base_html, sup):
-    return f"{base_html}<sup>{sup}</sup>"
-
-
-def frac_half():
-    return '<span class="frac"><span class="top">1</span><span class="bottom">2</span></span>'
-
-
-def label_box(text):
-    return f'<div class="sheet-cell-wrap"><div class="sheet-label">{text}</div></div>'
-
-
-def head_box(text):
-    return f'<div class="sheet-cell-wrap"><div class="sheet-head">{text}</div></div>'
-
-
-def top_box(text):
-    return f'<div class="sheet-top-wrap"><div class="sheet-label">{text}</div></div>'
-
-
-def value_box(text):
-    return f'<div class="sheet-cell-wrap"><div class="sheet-value">{text}</div></div>'
-
-
-def calc_ke(vx, vy, m):
+def calc_ke(m, vx, vy):
     return 0.5 * m * (vx**2 + vy**2)
 
 
-def calc_pe(y, m, g):
+def calc_pe(m, g, y):
     return m * g * y
 
 
-def calc_me(ke, pe):
-    return ke + pe
-
-
-def initialize_state():
-    if STATE_KEY not in st.session_state:
-        st.session_state[STATE_KEY] = {
-            "m": "1.0",
-            "g": "9.8",
-            "x": {t: "" for t in TIMES},
-            "vx": {t: "" for t in TIMES},
-            "y": {t: "" for t in TIMES},
-            "vy": {t: "" for t in TIMES},
-        }
-    return st.session_state[STATE_KEY]
-
-
-def setup_korean_font():
-    korean_font_candidates = [
-        "Malgun Gothic",
-        "AppleGothic",
-        "NanumGothic",
-        "Noto Sans CJK KR",
-        "Noto Sans KR"
-    ]
-
-    available_fonts = {f.name for f in font_manager.fontManager.ttflist}
-    selected_font = None
-
-    for font_name in korean_font_candidates:
-        if font_name in available_fonts:
-            selected_font = font_name
-            break
-
-    if selected_font is not None:
-        rcParams["font.family"] = selected_font
-
-    rcParams["axes.unicode_minus"] = False
-
-
-def save_response(conclusion, communication):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    file_exists = SAVE_FILE.exists()
-
-    with open(SAVE_FILE, "a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-
-        if not file_exists:
-            writer.writerow(["time", "conclusion", "communication"])
-
-        writer.writerow([now, conclusion, communication])
-
-
-def draw_energy_chart(title, x_values, y_values, has_input):
-    fig, ax = plt.subplots(figsize=(4.2, 3.2))
-
-    if has_input:
-        ax.plot(x_values, y_values, marker="o")
-        ax.relim()
-        ax.autoscale_view()
-
-        y_min = min(y_values)
-        y_max = max(y_values)
-        if y_min == y_max:
-            margin = 1.0 if y_min == 0 else abs(y_min) * 0.1
-            ax.set_ylim(y_min - margin, y_max + margin)
-    else:
-        ax.set_xlim(min(x_values), max(x_values))
-        ax.set_ylim(0, 1)
-
+def draw_chart(title, times, values, ylabel="에너지"):
+    fig, ax = plt.subplots(figsize=(5, 3.5))
+    ax.plot(times, values, marker="o")
     ax.set_title(title)
-    ax.set_xlabel("시간 (s)")
-    ax.set_ylabel("에너지")
+    ax.set_xlabel("시간(s)")
+    ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
-
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
 
 
-# =========================================================
-# 화면 구성
-# =========================================================
-state = initialize_state()
-setup_korean_font()
+def simple_ai_feedback(conclusion, error_discussion, me_values):
+    """
+    OpenAI API 없이 작동하는 간단한 규칙 기반 피드백.
+    나중에 GPT API로 교체 가능.
+    """
+    feedback = []
+    misconception = "없음 또는 명확하지 않음"
 
-st.title(PAGE_TITLE)
-st.markdown(TXT_INTRO, unsafe_allow_html=True)
+    me_range = max(me_values) - min(me_values)
+    me_mean = sum(me_values) / len(me_values) if len(me_values) > 0 else 0
+    variation_ratio = me_range / me_mean if me_mean != 0 else 0
 
-preview_col, link_col = st.columns((5, 2))
-with preview_col:
-    with st.expander("실험 미리보기"):
-        st.video(VIDEO_URL)
+    if variation_ratio < 0.1:
+        feedback.append("역학적 에너지가 비교적 일정하게 유지된다는 점을 잘 확인했습니다.")
+    else:
+        feedback.append("역학적 에너지 값의 변화가 비교적 크게 나타났습니다. 측정 오차, 위치 기준 설정, 속도 측정 오차를 함께 검토할 필요가 있습니다.")
 
-with link_col:
-    st.link_button("바로가기", REFERENCE_URL, use_container_width=True)
+    if "보존" in conclusion or "일정" in conclusion:
+        feedback.append("결론에서 역학적 에너지 보존 개념을 언급한 점이 적절합니다.")
+    else:
+        feedback.append("결론에 운동에너지와 위치에너지의 합이 어떻게 변하는지 더 명확히 서술하면 좋습니다.")
+        misconception = "역학적 에너지 보존 이해 부족"
 
-st.markdown(TXT_ACTIVITY, unsafe_allow_html=True)
+    if "오차" in error_discussion or "측정" in error_discussion or "공기" in error_discussion:
+        feedback.append("실험 오차 요인을 고려한 점이 좋습니다.")
+    else:
+        feedback.append("오차 감소 방안에는 공기 저항, 영상 촬영 각도, 좌표축 설정, 시간 간격 측정 문제 등을 포함할 수 있습니다.")
 
-# =========================================================
-# 입력 표
-# =========================================================
-with st.expander("운동 기록표", expanded=False):
-    top_cols = st.columns([1.1, 1.2, 1.1, 1.2], gap="small")
+    return "\n".join([f"- {x}" for x in feedback]), misconception
 
-    with top_cols[0]:
-        st.markdown(top_box("물체의 질량"), unsafe_allow_html=True)
-    with top_cols[1]:
-        state["m"] = st.text_input(
-            "mass_input",
-            value=state["m"],
-            key="mass_input_sheet",
-            label_visibility="collapsed"
-        )
-    with top_cols[2]:
-        st.markdown(top_box("중력가속도"), unsafe_allow_html=True)
-    with top_cols[3]:
-        state["g"] = st.text_input(
-            "gravity_input",
-            value=state["g"],
-            key="gravity_input_sheet",
-            label_visibility="collapsed"
-        )
-
-    m = parse_float(state["m"], 1.0)
-    g = parse_float(state["g"], 9.8)
-
-    st.markdown('<div class="sheet-spacer"></div>', unsafe_allow_html=True)
-
-    widths = [2.1] + [0.82] * len(TIMES)
-
-    # 시간 행
-    row_time = st.columns(widths, gap="small")
-    with row_time[0]:
-        st.markdown(label_box("시간"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_time[i + 1]:
-            st.markdown(head_box(fmt_time(t)), unsafe_allow_html=True)
-
-    # x 행
-    row_x = st.columns(widths, gap="small")
-    with row_x[0]:
-        st.markdown(label_box("수평방향 위치(<i>x</i>)"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_x[i + 1]:
-            state["x"][t] = st.text_input(
-                f"x_{t}",
-                value=state["x"][t],
-                key=f"x_sheet_{t}",
-                label_visibility="collapsed"
-            )
-
-    # vx 행
-    row_vx = st.columns(widths, gap="small")
-    with row_vx[0]:
-        st.markdown(label_box(f"수평방향 속력({sub_var('v', 'x')})"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_vx[i + 1]:
-            state["vx"][t] = st.text_input(
-                f"vx_{t}",
-                value=state["vx"][t],
-                key=f"vx_sheet_{t}",
-                label_visibility="collapsed"
-            )
-
-    # y 행
-    row_y = st.columns(widths, gap="small")
-    with row_y[0]:
-        st.markdown(label_box("연직방향 위치(<i>y</i>)"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_y[i + 1]:
-            state["y"][t] = st.text_input(
-                f"y_{t}",
-                value=state["y"][t],
-                key=f"y_sheet_{t}",
-                label_visibility="collapsed"
-            )
-
-    # vy 행
-    row_vy = st.columns(widths, gap="small")
-    with row_vy[0]:
-        st.markdown(label_box(f"연직방향 속력({sub_var('v', 'y')})"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_vy[i + 1]:
-            state["vy"][t] = st.text_input(
-                f"vy_{t}",
-                value=state["vy"][t],
-                key=f"vy_sheet_{t}",
-                label_visibility="collapsed"
-            )
-
-    # 숫자 변환
-    x_vals = {t: parse_float(state["x"][t], 0.0) for t in TIMES}
-    vx_vals = {t: parse_float(state["vx"][t], 0.0) for t in TIMES}
-    y_vals = {t: parse_float(state["y"][t], 0.0) for t in TIMES}
-    vy_vals = {t: parse_float(state["vy"][t], 0.0) for t in TIMES}
-
-    # 에너지 계산
-    ke_values = {}
-    pe_values = {}
-    me_values = {}
-
-    for t in TIMES:
-        ke = calc_ke(vx_vals[t], vy_vals[t], m)
-        pe = calc_pe(y_vals[t], m, g)
-        me = calc_me(ke, pe)
-
-        ke_values[t] = ke
-        pe_values[t] = pe
-        me_values[t] = me
-
-    vx2 = sup_var(sub_var("v", "x"), "2")
-    vy2 = sup_var(sub_var("v", "y"), "2")
-    ke_formula = f"운동 에너지({frac_half()}<i>m</i>({vx2}+{vy2}))"
-
-    # 운동에너지 행
-    row_ke = st.columns(widths, gap="small")
-    with row_ke[0]:
-        st.markdown(label_box(ke_formula), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_ke[i + 1]:
-            st.markdown(value_box(f"{ke_values[t]:.3f}"), unsafe_allow_html=True)
-
-    # 위치에너지 행
-    row_pe = st.columns(widths, gap="small")
-    with row_pe[0]:
-        st.markdown(label_box("위치 에너지(<i>mgy</i>)"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_pe[i + 1]:
-            st.markdown(value_box(f"{pe_values[t]:.3f}"), unsafe_allow_html=True)
-
-    # 역학적에너지 행
-    row_me = st.columns(widths, gap="small")
-    with row_me[0]:
-        st.markdown(label_box("역학적 에너지"), unsafe_allow_html=True)
-    for i, t in enumerate(TIMES):
-        with row_me[i + 1]:
-            st.markdown(value_box(f"{me_values[t]:.3f}"), unsafe_allow_html=True)
 
 # =========================================================
-# 그래프
+# 초기화
 # =========================================================
-st.markdown(TXT_GRAPH_GUIDE, unsafe_allow_html=True)
+init_db()
 
-has_any_input = any(
-    str(state[var][t]).strip() != ""
-    for var in ["x", "vx", "y", "vy"]
-    for t in TIMES
+if "page" not in st.session_state:
+    st.session_state.page = "단원 홈"
+
+if "data" not in st.session_state:
+    st.session_state.data = {
+        "student_name": "",
+        "class_name": "",
+        "diagnosis_q1": "",
+        "diagnosis_q2": "",
+        "diagnosis_q3": "",
+        "mass": "1.0",
+        "gravity": "9.8",
+        "x": {t: "" for t in TIMES},
+        "y": {t: "" for t in TIMES},
+        "vx": {t: "" for t in TIMES},
+        "vy": {t: "" for t in TIMES},
+        "conclusion": "",
+        "error_discussion": "",
+        "ai_feedback": "",
+        "misconception_type": "",
+    }
+
+
+# =========================================================
+# 사이드바
+# =========================================================
+st.sidebar.title("화면 흐름도")
+
+pages = [
+    "단원 홈",
+    "도입",
+    "사전 진단",
+    "개념 학습",
+    "시각화·시뮬레이션",
+    "형성평가·AI 피드백",
+    "교사용 대시보드",
+]
+
+st.session_state.page = st.sidebar.radio(
+    "학습 단계",
+    pages,
+    index=pages.index(st.session_state.page)
 )
 
-with st.expander("에너지 그래프", expanded=False):
-    col1, col2, col3 = st.columns(3, gap="small")
+st.sidebar.markdown("---")
+st.sidebar.caption("포물선 운동 → 에너지 계산 → 그래프 해석 → AI 피드백 → 교사용 확인")
+
+
+# =========================================================
+# 1. 단원 홈
+# =========================================================
+if st.session_state.page == "단원 홈":
+    st.title(PAGE_TITLE)
+
+    st.markdown("""
+    ## 단원: 포물선 운동에서 역학적 에너지 보존
+
+    ### 핵심 질문
+    포물선 운동을 하는 물체의 운동에너지, 위치에너지, 역학적 에너지는 시간에 따라 어떻게 변할까?
+
+    ### 학습 목표
+    1. 포물선 운동에서 위치와 속도의 변화를 해석할 수 있다.  
+    2. 운동에너지와 위치에너지를 계산할 수 있다.  
+    3. 그래프를 바탕으로 역학적 에너지 보존 여부를 설명할 수 있다.  
+    4. 실험 오차의 원인을 분석하고 개선 방안을 제안할 수 있다.
+    """)
+
+    col1, col2 = st.columns(2)
 
     with col1:
-        draw_energy_chart(
-            "시간에 따른 운동 에너지",
-            TIMES,
-            [ke_values[t] for t in TIMES],
-            has_any_input
+        st.info("이 화면은 단순한 LMS가 아니라 AI가 데이터 해석과 피드백에 개입하는 AIDT 구조를 목표로 합니다.")
+
+    with col2:
+        st.success("학생 활동 결과는 SQLite DB에 저장되고, 교사용 대시보드에서 확인할 수 있습니다.")
+
+
+# =========================================================
+# 2. 도입
+# =========================================================
+elif st.session_state.page == "도입":
+    st.title("도입: 포물선 운동 관찰하기")
+
+    st.markdown("""
+    포물선 운동은 눈으로 관찰할 수 있지만, 그 안에서 변화하는 속도 성분과 에너지 변화는 직접 볼 수 없습니다.  
+    이 활동에서는 실제 운동 영상을 바탕으로 위치, 속도, 에너지를 분석합니다.
+    """)
+
+    st.video(VIDEO_URL)
+
+    st.markdown("""
+    ### 생각해보기
+    - 공이 올라갈 때 운동에너지는 어떻게 변할까?
+    - 가장 높은 지점에서 운동에너지는 0이 될까?
+    - 위치에너지와 운동에너지의 합은 시간에 따라 어떻게 될까?
+    """)
+
+
+# =========================================================
+# 3. 사전 진단
+# =========================================================
+elif st.session_state.page == "사전 진단":
+    st.title("사전 진단: 나의 생각 확인하기")
+
+    data = st.session_state.data
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        data["student_name"] = st.text_input(
+            "이름",
+            value=data["student_name"]
         )
 
     with col2:
-        draw_energy_chart(
-            "시간에 따른 위치 에너지",
-            TIMES,
-            [pe_values[t] for t in TIMES],
-            has_any_input
+        data["class_name"] = st.text_input(
+            "학급 또는 조",
+            value=data["class_name"]
         )
 
-    with col3:
-        draw_energy_chart(
-            "시간에 따른 역학적 에너지",
-            TIMES,
-            [me_values[t] for t in TIMES],
-            has_any_input
+    data["diagnosis_q1"] = st.radio(
+        "1. 포물선 운동에서 가장 높은 지점에 도달하면 물체의 운동에너지는 0이 된다.",
+        ["선택 안 함", "그렇다", "아니다", "잘 모르겠다"],
+        index=["선택 안 함", "그렇다", "아니다", "잘 모르겠다"].index(data["diagnosis_q1"]) if data["diagnosis_q1"] else 0
+    )
+
+    data["diagnosis_q2"] = st.radio(
+        "2. 공기 저항이 없다면 포물선 운동 중 역학적 에너지는 일정하게 보존된다.",
+        ["선택 안 함", "그렇다", "아니다", "잘 모르겠다"],
+        index=["선택 안 함", "그렇다", "아니다", "잘 모르겠다"].index(data["diagnosis_q2"]) if data["diagnosis_q2"] else 0
+    )
+
+    data["diagnosis_q3"] = st.radio(
+        "3. 공이 아래로 내려올수록 위치에너지는 감소하고 운동에너지는 증가한다.",
+        ["선택 안 함", "그렇다", "아니다", "잘 모르겠다"],
+        index=["선택 안 함", "그렇다", "아니다", "잘 모르겠다"].index(data["diagnosis_q3"]) if data["diagnosis_q3"] else 0
+    )
+
+    st.info("이 단계는 학생의 선개념과 오개념을 확인하기 위한 화면입니다.")
+
+
+# =========================================================
+# 4. 개념 학습
+# =========================================================
+elif st.session_state.page == "개념 학습":
+    st.title("개념 학습: 에너지 관계 이해하기")
+
+    st.markdown("""
+    ## 1. 운동에너지
+
+    물체가 운동하기 때문에 가지는 에너지입니다.
+
+    \\[
+    E_k = \\frac{1}{2}m(v_x^2 + v_y^2)
+    \\]
+
+    ## 2. 위치에너지
+
+    물체가 기준점보다 높은 위치에 있기 때문에 가지는 에너지입니다.
+
+    \\[
+    E_p = mgy
+    \\]
+
+    ## 3. 역학적 에너지
+
+    운동에너지와 위치에너지의 합입니다.
+
+    \\[
+    E = E_k + E_p
+    \\]
+
+    공기 저항과 마찰이 없다면 포물선 운동 중 역학적 에너지는 일정하게 보존됩니다.
+    """)
+
+    st.warning("중요: 가장 높은 지점에서도 수평방향 속도가 남아 있으므로 운동에너지가 반드시 0이 되는 것은 아닙니다.")
+
+
+# =========================================================
+# 5. 시각화·시뮬레이션
+# =========================================================
+elif st.session_state.page == "시각화·시뮬레이션":
+    st.title("시각화·시뮬레이션: 데이터 입력과 에너지 그래프")
+
+    data = st.session_state.data
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        data["mass"] = st.text_input("질량 m (kg)", value=data["mass"])
+
+    with col2:
+        data["gravity"] = st.text_input("중력가속도 g (m/s²)", value=data["gravity"])
+
+    m = parse_float(data["mass"], 1.0)
+    g = parse_float(data["gravity"], 9.8)
+
+    st.markdown("### 운동 기록표")
+
+    input_rows = []
+
+    for t in TIMES:
+        cols = st.columns(5)
+        with cols[0]:
+            st.markdown(f"**{t:.1f} s**")
+        with cols[1]:
+            data["x"][t] = st.text_input(f"x_{t}", value=data["x"][t], placeholder="x", label_visibility="collapsed")
+        with cols[2]:
+            data["y"][t] = st.text_input(f"y_{t}", value=data["y"][t], placeholder="y", label_visibility="collapsed")
+        with cols[3]:
+            data["vx"][t] = st.text_input(f"vx_{t}", value=data["vx"][t], placeholder="vx", label_visibility="collapsed")
+        with cols[4]:
+            data["vy"][t] = st.text_input(f"vy_{t}", value=data["vy"][t], placeholder="vy", label_visibility="collapsed")
+
+    rows = []
+    ke_values = []
+    pe_values = []
+    me_values = []
+
+    for t in TIMES:
+        x = parse_float(data["x"][t])
+        y = parse_float(data["y"][t])
+        vx = parse_float(data["vx"][t])
+        vy = parse_float(data["vy"][t])
+
+        ke = calc_ke(m, vx, vy)
+        pe = calc_pe(m, g, y)
+        me = ke + pe
+
+        ke_values.append(ke)
+        pe_values.append(pe)
+        me_values.append(me)
+
+        rows.append({
+            "시간(s)": t,
+            "x": x,
+            "y": y,
+            "vx": vx,
+            "vy": vy,
+            "운동에너지": round(ke, 3),
+            "위치에너지": round(pe, 3),
+            "역학적 에너지": round(me, 3),
+        })
+
+    df_energy = pd.DataFrame(rows)
+
+    st.markdown("### 에너지 계산 결과")
+    st.dataframe(df_energy, use_container_width=True)
+
+    st.markdown("### 에너지 그래프")
+
+    graph_col1, graph_col2, graph_col3 = st.columns(3)
+
+    with graph_col1:
+        draw_chart("운동에너지 변화", TIMES, ke_values)
+
+    with graph_col2:
+        draw_chart("위치에너지 변화", TIMES, pe_values)
+
+    with graph_col3:
+        draw_chart("역학적 에너지 변화", TIMES, me_values)
+
+    st.info("이 화면은 비가시적인 에너지 변화를 그래프와 수치로 가시화하는 핵심 화면입니다.")
+
+
+# =========================================================
+# 6. 형성평가·AI 피드백
+# =========================================================
+elif st.session_state.page == "형성평가·AI 피드백":
+    st.title("형성평가·AI 피드백")
+
+    data = st.session_state.data
+
+    st.markdown("""
+    ### 형성평가 1
+    시간에 따른 운동에너지, 위치에너지, 역학적 에너지 그래프를 바탕으로 포물선 운동에서 역학적 에너지가 어떻게 변하는지 설명하세요.
+    """)
+
+    data["conclusion"] = st.text_area(
+        "결론 도출",
+        value=data["conclusion"],
+        height=180,
+        placeholder="예: 운동에너지는 감소하다가 다시 증가하고, 위치에너지는 증가하다가 감소한다. 두 에너지의 합인 역학적 에너지는..."
+    )
+
+    st.markdown("""
+    ### 형성평가 2
+    실험 결과에서 역학적 에너지가 완전히 일정하지 않게 나타났다면 그 이유는 무엇일지 설명하세요.
+    """)
+
+    data["error_discussion"] = st.text_area(
+        "오차 원인 및 개선 방안",
+        value=data["error_discussion"],
+        height=180,
+        placeholder="예: 공기 저항, 영상 촬영 각도, 위치 측정 오차, 속도 계산 오차 등이 영향을 줄 수 있다..."
+    )
+
+    m = parse_float(data["mass"], 1.0)
+    g = parse_float(data["gravity"], 9.8)
+
+    rows = []
+    me_values = []
+
+    for t in TIMES:
+        x = parse_float(data["x"][t])
+        y = parse_float(data["y"][t])
+        vx = parse_float(data["vx"][t])
+        vy = parse_float(data["vy"][t])
+
+        ke = calc_ke(m, vx, vy)
+        pe = calc_pe(m, g, y)
+        me = ke + pe
+        me_values.append(me)
+
+        rows.append({
+            "time": t,
+            "x": x,
+            "y": y,
+            "vx": vx,
+            "vy": vy,
+            "ke": ke,
+            "pe": pe,
+            "me": me,
+        })
+
+    data_json = pd.DataFrame(rows).to_json(force_ascii=False)
+
+    if st.button("AI 피드백 받기 및 저장", use_container_width=True):
+        feedback, misconception = simple_ai_feedback(
+            data["conclusion"],
+            data["error_discussion"],
+            me_values
         )
 
+        data["ai_feedback"] = feedback
+        data["misconception_type"] = misconception
+
+        record = {
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "student_name": data["student_name"],
+            "class_name": data["class_name"],
+            "diagnosis_q1": data["diagnosis_q1"],
+            "diagnosis_q2": data["diagnosis_q2"],
+            "diagnosis_q3": data["diagnosis_q3"],
+            "mass": m,
+            "gravity": g,
+            "data_json": data_json,
+            "conclusion": data["conclusion"],
+            "error_discussion": data["error_discussion"],
+            "ai_feedback": feedback,
+            "misconception_type": misconception,
+        }
+
+        save_record(record)
+
+        st.success("AI 피드백과 학생 기록이 저장되었습니다.")
+
+    if data["ai_feedback"]:
+        st.markdown("### AI 피드백")
+        st.info(data["ai_feedback"])
+
+        st.markdown("### 진단된 오개념 유형")
+        st.warning(data["misconception_type"])
+
+
 # =========================================================
-# 학생 응답
+# 7. 교사용 대시보드
 # =========================================================
-st.markdown(TXT_CONCLUSION, unsafe_allow_html=True)
+elif st.session_state.page == "교사용 대시보드":
+    st.title("교사용 대시보드")
 
-student_conclusion = st.text_area(
-    "결론 도출에 대한 나의 생각",
-    placeholder="포물선 운동을 하는 물체의 역학적 에너지가 시간에 따라 어떻게 되는지 자신의 말로 설명해보세요.",
-    height=180,
-    key="student_conclusion"
-)
+    df = load_records()
 
-st.markdown(TXT_COMMUNICATION, unsafe_allow_html=True)
-
-student_communication = st.text_area(
-    "소통하기에 대한 나의 생각",
-    placeholder="실험 오차를 줄이기 위한 방법을 자신의 생각으로 작성해보세요.",
-    height=180,
-    key="student_communication"
-)
-
-if st.button("GPT 평가 및 피드백 받기", use_container_width=True):
-    if student_conclusion.strip() == "" and student_communication.strip() == "":
-        st.warning("의견을 먼저 입력해주세요.")
+    if df.empty:
+        st.warning("아직 저장된 학생 기록이 없습니다.")
     else:
-        save_response(student_conclusion, student_communication)
-        st.success("저장 완료")
-        st.write("저장 위치:", SAVE_FILE)
+        st.markdown("### 전체 학생 기록")
+        st.dataframe(df, use_container_width=True)
 
-        # 필요하면 아래 주석을 해제해서 저장된 응답을 바로 확인할 수 있습니다.
-        # if SAVE_FILE.exists():
-        #     df_response = pd.read_csv(SAVE_FILE, encoding="utf-8-sig")
-        #     st.dataframe(df_response, use_container_width=True)
+        st.markdown("### 오개념 유형 분포")
 
-# =========================================================
-# GPT 평가 기능은 나중에 필요할 때 아래처럼 연결 가능
-# =========================================================
-# from openai import OpenAI
-# client = OpenAI()
-#
-# if student_conclusion.strip() != "":
-#     prompt = f"..."
-#     response = client.responses.create(
-#         model="gpt-5",
-#         input=prompt
-#     )
-#     st.write(response.output_text)
+        misconception_count = df["misconception_type"].value_counts().reset_index()
+        misconception_count.columns = ["오개념 유형", "학생 수"]
+
+        st.dataframe(misconception_count, use_container_width=True)
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.bar(misconception_count["오개념 유형"], misconception_count["학생 수"])
+        ax.set_xlabel("오개념 유형")
+        ax.set_ylabel("학생 수")
+        ax.set_title("오개념 유형별 학생 수")
+        plt.xticks(rotation=20)
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+
+        st.markdown("### 학생별 AI 피드백 확인")
+
+        selected_id = st.selectbox(
+            "학생 기록 선택",
+            df["id"].tolist()
+        )
+
+        selected = df[df["id"] == selected_id].iloc[0]
+
+        st.write("이름:", selected["student_name"])
+        st.write("학급/조:", selected["class_name"])
+        st.write("저장 시각:", selected["created_at"])
+
+        st.markdown("#### 결론 도출")
+        st.write(selected["conclusion"])
+
+        st.markdown("#### 오차 원인 및 개선 방안")
+        st.write(selected["error_discussion"])
+
+        st.markdown("#### AI 피드백")
+        st.info(selected["ai_feedback"])
+
+        st.markdown("#### 진단된 오개념")
+        st.warning(selected["misconception_type"])
